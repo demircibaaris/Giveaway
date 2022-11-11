@@ -1,0 +1,5 @@
+name: Giveaway
+api: 4.0.0
+version: 1.0
+main: ihs4ncim\events\Giveaway
+author: ihs4ncim
