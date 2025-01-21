@@ -11,54 +11,70 @@ use pocketmine\command\CommandSender;
 use pocketmine\command\Command;
 use pocketmine\plugin\PluginOwned;
 
-class GiveawayCommands extends Command implements PluginOwned{
+class GiveawayCommands extends Command implements PluginOwned {
 
- private $plugin;
+    private Giveaway $plugin;
 
- public function getOwningPlugin() : Giveaway {
-  return $this->plugin;
- }
-
- public function __construct($name, Giveaway $plugin){
-  parent::__construct("giveaway", "Giveaway", "/giveaway");
-  $this->plugin = $plugin;
- }
-
- public function execute(CommandSender $sender, string $label, array $args): bool{
-  $api = GiveawayAPI::getAPI();
-  if($args){
-   $arg = $args[0];
-   if($arg){
-    if($arg == 'help'){
-     $sender->sendMessage("Giveaway Help:\n\n/giveaway help\n/giveaway buyticket\n/giveaway finish");
-    }elseif($arg == 'buyticket'){
-     if($sender instanceof Player){
-      if($api->getMoney($sender) >= 1000){
-       $api->addGiveaway($sender);
-      }else{
-       $sender->sendMessage("You don't have enough money.");
-      }
-     }else{
-      $sender->sendMessage("Use in game.");
-     }
-    }elseif($arg == 'finish'){
-     if($sender->hasPermission(DefaultPermissions::ROOT_OPERATOR)){
-      $tickets = $api->getTickets();
-      if(count($tickets) >= 5){
-       $api->finishGiveaway();
-      }else{
-       $sender->sendMessage("More tickets needed to finish. Tickets: " . count($api->getTickets()));
-      }
-     }else{
-      $sender->sendMessage("You don't have permission.");
-     }
+    public function __construct(string $name, Giveaway $plugin) {
+        parent::__construct($name, "Manage giveaways", "/giveaway <help|buyticket|finish>");
+        $this->plugin = $plugin;
+        $this->setPermission(DefaultPermissions::ROOT_OPERATOR); // Varsayılan yetki düzeyi
     }
-   }else{
-    $sender->sendMessage("/giveaway help");
-   }
-  }else{
-   $sender->sendMessage("/giveaway help");
-  }
-  return true;
- }
+
+    public function getOwningPlugin(): Giveaway {
+        return $this->plugin;
+    }
+
+    public function execute(CommandSender $sender, string $label, array $args): bool {
+        $api = GiveawayAPI::getInstance();
+
+        if (empty($args)) {
+            $sender->sendMessage("Usage: /giveaway help");
+            return false;
+        }
+
+        switch (strtolower($args[0])) {
+            case 'help':
+                $sender->sendMessage("Giveaway Commands:\n" .
+                                     "/giveaway help - Show this help message\n" .
+                                     "/giveaway buyticket - Buy a giveaway ticket\n" .
+                                     "/giveaway finish - Finish the giveaway (Admin only)");
+                break;
+
+            case 'buyticket':
+                if (!$sender instanceof Player) {
+                    $sender->sendMessage("This command can only be used in-game.");
+                    return false;
+                }
+
+                if ($api->getMoney($sender) < 1000) {
+                    $sender->sendMessage("You don't have enough money to buy a ticket.");
+                    return false;
+                }
+
+                $api->addGiveaway($sender);
+                break;
+
+            case 'finish':
+                if (!$sender->hasPermission(DefaultPermissions::ROOT_OPERATOR)) {
+                    $sender->sendMessage("You don't have permission to use this command.");
+                    return false;
+                }
+
+                $tickets = $api->getTickets();
+                if (count($tickets) < 5) {
+                    $sender->sendMessage("Not enough tickets to finish the giveaway. Current tickets: " . count($tickets));
+                    return false;
+                }
+
+                $api->finishGiveaway();
+                break;
+
+            default:
+                $sender->sendMessage("Unknown subcommand. Use /giveaway help for a list of commands.");
+                break;
+        }
+
+        return true;
+    }
 }
