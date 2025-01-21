@@ -2,116 +2,133 @@
 
 namespace ihs4ncim\events;
 
-use ihs4ncim\events\Giveaway;
 use pocketmine\Server;
 use pocketmine\utils\Config;
 
-class GiveawayAPI{
- 
- public static $api;
- public $dataFolder;
- 
- public function init():void{
-  self::$api = $this;
-  $this->dataFolder = Server::getInstance()->getDataPath() . 'plugin_data/Giveaway/';
- }
+class GiveawayAPI {
 
- public static function getAPI():GiveawayAPI{
-  return self::$api;
- }
+    private static ?GiveawayAPI $instance = null;
+    private string $dataFolder;
 
- public function getData(){
-  return $data = new Config($this->dataFolder . "giveaway.yml", Config::YAML, array());
- }
+    public function __construct() {
+        $this->dataFolder = Server::getInstance()->getDataPath() . 'plugin_data/Giveaway/';
+        if (!self::$instance) {
+            self::$instance = $this;
+        }
+    }
 
- public function finishGiveaway(){
-  $randomticket = $this->getRandomTicket();
-  $winner = $this->getWinner($randomticket);
-  Server::getInstance()->broadcastMessage("The winner of the big giveaway is $randomticket | $winner");
-  $this->addMoney($winner);
-  $this->resetTickets();
- }
+    public static function getInstance(): GiveawayAPI {
+        if (!self::$instance) {
+            throw new \RuntimeException("GiveawayAPI instance not initialized.");
+        }
+        return self::$instance;
+    }
 
- public function createTicket(){
-  $string = 'TICKET-';
-  $characters = '0123456789';
-  for ($i = 0; $i < 5; $i++) {
-   $string .= $characters[rand(0, strlen($characters)-1)];
-  }
-  return $string;
- }
+    private function getData(): Config {
+        return new Config($this->dataFolder . "giveaway.yml", Config::YAML, []);
+    }
 
- public function resetTickets(){
-  $data = $this->getData();
-  $tickets = array_keys($this->getTickets());
-  foreach($tickets as $ticket){
-   $data->remove($ticket);
-   $data->save();
-  }
-  Server::getInstance()->getLogger()->info("All data has been reset.");
- }
+    public function finishGiveaway(): void {
+        $randomTicket = $this->getRandomTicket();
+        $winner = $this->getWinner($randomTicket);
 
- public function getTickets(){
-  $data = $this->getData();
-  return $tickets = $data->getAll();
- }
+        if (!$randomTicket || !$winner) {
+            Server::getInstance()->broadcastMessage("No winner could be determined.");
+            return;
+        }
 
- public function getRandomTicket(){
-  $list = $this->getTickets();
-  return $ticket = array_rand($list);
- }
+        Server::getInstance()->broadcastMessage("The winner of the big giveaway is $randomTicket | $winner");
+        $this->addMoney($winner);
+        $this->resetTickets();
+    }
 
- public function getWinner($ticket){
-  $list = $this->getTickets();
-  return $list[$ticket];
- }
+    public function createTicket(): string {
+        $prefix = 'TICKET-';
+        $characters = '0123456789';
+        $ticket = $prefix;
 
- public function inGiveaway($ticket):bool{
-  $data = $this->getData();
-  if($data->getNested($ticket)){
-   return true;
-  }else{
-   return false;
-  }
- }
+        for ($i = 0; $i < 5; $i++) {
+            $ticket .= $characters[rand(0, strlen($characters) - 1)];
+        }
 
- public function addGiveaway($player){
-  $ticket = $this->createTicket();
-  $data = $this->getData();
-  if($this->inGiveaway($ticket) == true){
-   return $player->sendMessage("§cTry again.");
-  }else{
-   $this->reduceMoney($player);
-   $this->registGiveaway($ticket, $player);
-   $player->sendMessage("You bought a ticket.");
-  }
- }
+        return $ticket;
+    }
 
- public function registGiveaway($ticket, $player):void{
-  $data = $this->getData();
-  $data->set($ticket, $player->getName());
-  $data->save();
- }
+    public function resetTickets(): void {
+        $data = $this->getData();
+        foreach (array_keys($this->getTickets()) as $ticket) {
+            $data->remove($ticket);
+        }
+        $data->save();
+        Server::getInstance()->getLogger()->info("All giveaway data has been reset.");
+    }
 
- public function getEconomyAPI(){
-  return $economy = Server::getInstance()->getPluginManager()->getPlugin("EconomyAPI");
- }
+    public function getTickets(): array {
+        return $this->getData()->getAll();
+    }
 
- public function getMoney($player){
-  return $this->getEconomyAPI()->myMoney($player->getName());
- }
+    public function getRandomTicket(): ?string {
+        $tickets = array_keys($this->getTickets());
+        return $tickets ? $tickets[array_rand($tickets)] : null;
+    }
 
- public function reduceMoney($player){
-  $this->getEconomyAPI()->reduceMoney($player->getName(), 1000);
- }
+    public function getWinner(string $ticket): ?string {
+        $tickets = $this->getTickets();
+        return $tickets[$ticket] ?? null;
+    }
 
- public function addMoney($player){
-  $this->getEconomyAPI()->addMoney($player, $this->getReward());
- }
+    public function inGiveaway(string $ticket): bool {
+        return $this->getData()->exists($ticket);
+    }
 
- public function getReward():int{
-  $tickets = $this->getTickets();
-  $lentickets = count($tickets);
-  return $lentickets*1000;
- }
+    public function addGiveaway($player): void {
+        $ticket = $this->createTicket();
+
+        if ($this->inGiveaway($ticket)) {
+            $player->sendMessage("\u00a7cTry again.");
+            return;
+        }
+
+        if ($this->getMoney($player) < 1000) {
+            $player->sendMessage("\u00a7cNot enough money to buy a ticket.");
+            return;
+        }
+
+        $this->reduceMoney($player);
+        $this->registerGiveaway($ticket, $player);
+        $player->sendMessage("You bought a ticket.");
+    }
+
+    private function registerGiveaway(string $ticket, $player): void {
+        $data = $this->getData();
+        $data->set($ticket, $player->getName());
+        $data->save();
+    }
+
+    private function getEconomyAPI() {
+        return Server::getInstance()->getPluginManager()->getPlugin("EconomyAPI");
+    }
+
+    private function getMoney($player): float {
+        $economy = $this->getEconomyAPI();
+        return $economy ? $economy->myMoney($player->getName()) : 0.0;
+    }
+
+    private function reduceMoney($player): void {
+        $economy = $this->getEconomyAPI();
+        if ($economy) {
+            $economy->reduceMoney($player->getName(), 1000);
+        }
+    }
+
+    private function addMoney(string $playerName): void {
+        $economy = $this->getEconomyAPI();
+        if ($economy) {
+            $economy->addMoney($playerName, $this->getReward());
+        }
+    }
+
+    private function getReward(): int {
+        return count($this->getTickets()) * 1000;
+    }
 }
